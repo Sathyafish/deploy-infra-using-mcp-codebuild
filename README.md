@@ -1,227 +1,195 @@
-# Deploy Infrastructure using MCP CodeBuild
+# 🚀 Natural Language Infrastructure Automation with AWS MCP
 
-This repository contains CloudFormation templates to create an AWS CodeBuild project that uses Model Context Protocol (MCP) with AWS Bedrock to generate and deploy Terraform infrastructure from natural language instructions.
+Deploy AWS infrastructure using plain English and AI-powered Terraform generation via AWS CodeBuild and MCP (Model Context Protocol).
 
-## Overview
+## 🎯 What This Does
 
-The CloudFormation template (`codebuild-cloudformation.yaml`) creates:
-- AWS CodeBuild project connected to GitHub with webhook triggers
-- IAM role with necessary permissions for Bedrock, Terraform, and AWS services
-- S3 bucket for build artifacts
-- CloudWatch Log Group for build logs
+Describe your AWS infrastructure in natural language → AI generates Terraform → Automatically deploys to AWS.
 
-The `buildspec.yml` file defines a build process that:
-1. Installs Python, Terraform, and MCP dependencies
-2. Uses AWS Bedrock to generate Terraform code from natural language instructions
-3. Executes Terraform commands via AWS Terraform MCP Server
-4. Deploys infrastructure automatically
+## 🏗️ Architecture Flow
 
-## Prerequisites
+```mermaid
+graph TD
+    A[GitHub Push] -->|Webhook Trigger| B[AWS CodeBuild]
+    B -->|Read| C[buildspec.yaml]
+    C -->|Install| D[Python, MCP, Terraform]
+    D -->|Natural Language| E[Amazon Bedrock Nova]
+    E -->|Generate| F[Terraform HCL Code]
+    F -->|Validate| G[Terraform MCP Server]
+    G -->|Init & Plan| H[Terraform State]
+    H -->|Apply| I[AWS Resources Created]
+    I -->|S3, EC2, Lambda, etc| J[Your AWS Account]
+    
+    style A fill:#ff9900
+    style E fill:#00a1c9
+    style I fill:#232f3e
+    style J fill:#569a31
+```
 
-1. AWS CLI configured with appropriate credentials
-2. AWS Bedrock access with Anthropic Claude model enabled
-3. GitHub repository (public or private)
-4. IAM permissions to create CodeBuild projects, S3 buckets, and CloudWatch logs
+## ⚡ Quick Start
 
-## Deployment Steps
+### 1. Prerequisites
 
-### Option 1: Using AWS Console
+- AWS Account with CodeBuild access
+- GitHub repository
+- Bedrock model access (Amazon Nova Pro)
 
-1. Log in to the AWS Management Console
-2. Navigate to CloudFormation service
-3. Click "Create stack" → "With new resources (standard)"
-4. Upload the `codebuild-cloudformation.yaml` file
-5. Fill in the parameters:
-   - **GitHubRepoUrl**: `https://github.com/Sathyafish/deploy-infra-using-mcp-codebuild`
-   - **GitHubBranch**: `main` (or your preferred branch)
-   - **BuildImage**: Choose appropriate build image (default: `aws/codebuild/standard:7.0`)
-   - **ComputeType**: Choose compute type (default: `BUILD_GENERAL1_SMALL`)
-6. Review and create the stack
+### 2. Setup CodeBuild
 
-### Option 2: Using AWS CLI
+Deploy the CloudFormation stack:
 
 ```bash
-aws cloudformation create-stack \
-  --stack-name codebuild-github-project \
-  --template-body file://codebuild-cloudformation.yaml \
-  --parameters ParameterKey=GitHubRepoUrl,ParameterValue=https://github.com/Sathyafish/deploy-infra-using-mcp-codebuild \
-               ParameterKey=GitHubBranch,ParameterValue=main \
+aws cloudformation deploy \
+  --template-file codebuild-template.yaml \
+  --stack-name mcp-infrastructure-builder \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
-### Option 3: Using AWS CLI with parameters file
+### 3. Configure Webhook
 
-Create a `parameters.json` file:
+Connect GitHub to CodeBuild (one-time setup):
+- Go to CodeBuild Console → Your Project
+- Edit → Source → Connect to GitHub
+- Authorize AWS CodeBuild
 
-```json
-[
-  {
-    "ParameterKey": "GitHubRepoUrl",
-    "ParameterValue": "https://github.com/Sathyafish/deploy-infra-using-mcp-codebuild"
-  },
-  {
-    "ParameterKey": "GitHubBranch",
-    "ParameterValue": "main"
-  },
-  {
-    "ParameterKey": "BuildImage",
-    "ParameterValue": "aws/codebuild/standard:7.0"
-  },
-  {
-    "ParameterKey": "ComputeType",
-    "ParameterValue": "BUILD_GENERAL1_SMALL"
-  }
-]
+### 4. Use It!
+
+Edit `buildspec.yaml` and change the instruction:
+
+```yaml
+INSTRUCTION: "Create an S3 bucket named my-app-logs with versioning and encryption"
 ```
 
-Then deploy:
+Push to GitHub → Infrastructure automatically deploys! ✨
+
+## 📝 Example Instructions
+
+### S3 Bucket
+```yaml
+INSTRUCTION: "Create an S3 bucket named my-data-bucket with versioning enabled and block all public access"
+```
+
+### EC2 Instance
+```yaml
+INSTRUCTION: "Create a t3.micro EC2 instance named web-server with Amazon Linux 2023 and allow SSH access"
+```
+
+### Lambda Function
+```yaml
+INSTRUCTION: "Create a Python Lambda function named data-processor with 512MB memory"
+```
+
+### RDS Database
+```yaml
+INSTRUCTION: "Create a PostgreSQL RDS instance named app-db with db.t3.micro size and automated backups"
+```
+
+### Complete Stack
+```yaml
+INSTRUCTION: "Create an Application Load Balancer with Auto Scaling Group of 2-5 t3.small instances and RDS MySQL"
+```
+
+## 🛠️ How It Works
+
+1. **Push Code**: Commit changes to GitHub
+2. **Webhook Triggers**: CodeBuild starts automatically
+3. **AI Generation**: Bedrock Nova generates Terraform code
+4. **MCP Validation**: Terraform MCP Server validates configuration
+5. **Auto Deploy**: Terraform applies changes to AWS
+6. **Resources Created**: Your infrastructure is live!
+
+## 🔧 Configuration
+
+### Change Model
+
+Edit `buildspec.yaml`:
+
+```yaml
+# Amazon Nova Pro (Default)
+BEDROCK_MODEL_ID: "amazon.nova-pro-v1:0"
+
+# Or use Claude (if quota available)
+BEDROCK_MODEL_ID: "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+
+# Or Amazon Titan
+BEDROCK_MODEL_ID: "amazon.titan-text-premier-v1:0"
+```
+
+### Change Region
+
+```yaml
+AWS_REGION: "us-west-2"  # Default is us-east-1
+```
+
+## 📊 What Gets Created
+
+- ✅ Terraform configuration files (`main.tf`)
+- ✅ Terraform state files
+- ✅ Real AWS resources (S3, EC2, Lambda, etc.)
+- ✅ Build artifacts in S3
+
+## ⚠️ Important Notes
+
+- **Auto-Apply**: Infrastructure deploys automatically (no manual approval)
+- **Real Resources**: Creates actual AWS resources that may incur costs
+- **State Management**: Terraform state stored locally (consider S3 backend for production)
+- **Security**: Review generated Terraform before production use
+
+## 🎓 Features
+
+- 🤖 **AI-Powered**: Natural language to infrastructure
+- 🔄 **GitOps**: Push to deploy workflow
+- ✅ **Validated**: MCP ensures Terraform correctness
+- 🔐 **Secure**: Uses AWS IAM and best practices
+- 📦 **Artifacts**: Saves all generated files
+
+## 🔍 Monitoring
+
+Check build status:
 
 ```bash
-aws cloudformation create-stack \
-  --stack-name codebuild-github-project \
-  --template-body file://codebuild-cloudformation.yaml \
-  --parameters file://parameters.json \
-  --capabilities CAPABILITY_NAMED_IAM
+# List builds
+aws codebuild list-builds-for-project \
+  --project-name mcp-infrastructure-builder
+
+# View logs
+aws logs tail /aws/codebuild/mcp-infrastructure-builder --follow
 ```
 
-## Build Specification
+## 🧹 Cleanup
 
-The `buildspec.yml` file defines the build process with the following phases:
-
-### Install Phase
-- Installs Python 3.11 runtime
-- Upgrades pip
-- Installs MCP Python SDK and AWS Terraform MCP Server
-- Downloads and installs Terraform 1.6.6
-
-### Pre-Build Phase
-- Validates required environment variables
-- Creates Terraform working directory
-- Displays build configuration
-
-### Build Phase
-- Generates Terraform code using AWS Bedrock from natural language instructions
-- Executes Terraform commands (init, validate, plan, apply) via MCP server
-- Deploys infrastructure automatically
-
-### Post-Build Phase
-- Displays deployment completion message
-- Lists generated Terraform files
-
-### Artifacts
-- Saves generated `main.tf` file
-- Saves the Python script used for generation
-
-## Environment Variables
-
-The buildspec uses the following environment variables (configure in CodeBuild project or buildspec.yml):
-
-- **AWS_REGION**: AWS region for deployment (default: `us-east-1`)
-- **INSTRUCTION**: Natural language instruction for infrastructure creation (e.g., "Create an S3 bucket named my-company-logs-12345 with versioning enabled and block all public access.")
-- **BEDROCK_MODEL_ID**: AWS Bedrock model ID (default: `anthropic.claude-3-5-sonnet-20241022-v2:0`)
-- **TF_DIR**: Directory for Terraform files (default: `tfgen`)
-
-## Running a Build
-
-### Automatic Triggers
-
-The CodeBuild project is configured with webhook triggers that automatically start builds on:
-- Push events to the specified branch
-
-### Manual Build
-
-You can also trigger a build manually:
-
-#### Using AWS Console
-
-1. Navigate to CodeBuild service
-2. Select your project
-3. Click "Start build"
-
-#### Using AWS CLI
+Destroy created resources:
 
 ```bash
-aws codebuild start-build --project-name <project-name>
+cd tfgen
+terraform destroy -auto-approve
 ```
 
-The project name follows the pattern: `<stack-name>-codebuild-project`
-
-## Customization
-
-### Modify Build Environment
-
-Edit the CloudFormation template parameters:
-- **BuildImage**: Change the Docker image used for builds
-- **ComputeType**: Adjust compute resources
-- **EnvironmentType**: Change environment type (Linux, Windows, ARM, etc.)
-
-### Update Build Instructions
-
-Modify the `INSTRUCTION` environment variable in `buildspec.yml` or override it in the CodeBuild project settings to change what infrastructure gets created.
-
-### Change Bedrock Model
-
-Update the `BEDROCK_MODEL_ID` environment variable to use a different AWS Bedrock model.
-
-## Cleanup
-
-To delete all resources:
+Delete CloudFormation stack:
 
 ```bash
-aws cloudformation delete-stack --stack-name codebuild-github-project
+aws cloudformation delete-stack --stack-name mcp-infrastructure-builder
 ```
 
-**Note**: This will also delete any infrastructure created by Terraform during builds. Ensure you've backed up any important data.
+## 📚 Tech Stack
 
-## Troubleshooting
+- **AWS CodeBuild**: CI/CD automation
+- **Amazon Bedrock**: AI model inference (Nova Pro)
+- **MCP**: Model Context Protocol for Terraform
+- **Terraform**: Infrastructure as Code
+- **Python**: Orchestration logic
 
-### Build Fails with Authentication Error
+## 🤝 Contributing
 
-- Ensure the GitHub repository URL is correct
-- Verify webhook permissions if using private repositories
+Contributions welcome! This project demonstrates:
+- Natural language infrastructure
+- MCP integration patterns
+- AI-powered DevOps workflows
 
-### Permission Denied Errors
+## 📄 License
 
-- Check that the IAM role has necessary permissions for:
-  - Bedrock (invoke model)
-  - Terraform operations (EC2, S3, IAM, etc.)
-  - CloudWatch logs
-  - S3 bucket access for artifacts
+MIT License - Use freely for learning and production!
 
-### Terraform Installation Fails
+---
 
-- Verify the CodeBuild image has `wget` and `unzip` available
-- Check network connectivity to download Terraform
-
-### Bedrock Model Access
-
-- Ensure your AWS account has access to the specified Bedrock model
-- Verify the model ID is correct for your region
-- Check IAM permissions for Bedrock runtime operations
-
-### Build Timeout
-
-- Increase `TimeoutInMinutes` in the CloudFormation template
-- Optimize your build commands in `buildspec.yml`
-- Consider using a larger compute type for faster execution
-
-## Security Notes
-
-- The S3 bucket is configured with public access blocked
-- IAM role includes necessary permissions for MCP and Terraform operations
-- CloudWatch logs are retained for 7 days (configurable)
-- Artifacts are stored in a versioned S3 bucket
-- Terraform state is managed by the MCP server
-
-## How It Works
-
-1. **CodeBuild Trigger**: Webhook triggers a build on push to the repository
-2. **Environment Setup**: CodeBuild installs Python, Terraform, and MCP dependencies
-3. **Terraform Generation**: AWS Bedrock generates Terraform code from the natural language instruction
-4. **MCP Execution**: The AWS Terraform MCP Server executes Terraform commands (init, validate, plan, apply)
-5. **Infrastructure Deployment**: Terraform deploys the generated infrastructure
-6. **Artifacts**: Generated Terraform files are saved to S3
-
-## License
-
-This project is open source and available for use.
+**Built with ❤️ using AWS MCP Server and Amazon Bedrock**
