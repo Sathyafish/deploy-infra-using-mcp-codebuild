@@ -90,6 +90,7 @@ Resources:
                   - kms:*
                   - s3:*
                   - codeconnections:*
+                  - bedrock:InvokeModel
                 Resource: '*'
 
   # S3 Bucket for CodeBuild Artifacts
