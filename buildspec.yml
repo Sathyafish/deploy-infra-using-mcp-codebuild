@@ -4,7 +4,7 @@ env:
   variables:
     AWS_REGION: "us-east-1"
     INSTRUCTION: "Create an S3 bucket named my-company-logs-12345 with versioning enabled and block all public access."
-    BEDROCK_MODEL_ID: "anthropic.claude-3-7-sonnet-20250219-v1:0"
+    BEDROCK_MODEL_ID: "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
     TF_DIR: "tfgen"
 
 phases:
@@ -50,16 +50,31 @@ phases:
 
         def bedrock_invoke_text(model_id: str, prompt: str) -> str:
             """
-            Minimal Bedrock text invocation for Anthropic-style models.
+            Bedrock text invocation supporting both Anthropic and Amazon Titan models.
             """
             br = boto3.client("bedrock-runtime", region_name=os.environ["AWS_REGION"])
 
-            body = {
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 2000,
-                "temperature": 0.2,
-                "messages": [{"role": "user", "content": prompt}],
-            }
+            # Detect model provider and format request accordingly
+            if "anthropic" in model_id.lower():
+                # Anthropic Claude format
+                body = {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 2000,
+                    "temperature": 0.2,
+                    "messages": [{"role": "user", "content": prompt}],
+                }
+            elif "titan" in model_id.lower():
+                # Amazon Titan format
+                body = {
+                    "inputText": prompt,
+                    "textGenerationConfig": {
+                        "maxTokenCount": 2000,
+                        "temperature": 0.2,
+                        "topP": 0.9,
+                    }
+                }
+            else:
+                raise ValueError(f"Unsupported model: {model_id}")
 
             resp = br.invoke_model(
                 modelId=model_id,
@@ -68,7 +83,14 @@ phases:
                 accept="application/json",
             )
             data = json.loads(resp["body"].read())
-            return "".join(part.get("text", "") for part in data.get("content", []))
+            
+            # Parse response based on model type
+            if "anthropic" in model_id.lower():
+                return "".join(part.get("text", "") for part in data.get("content", []))
+            elif "titan" in model_id.lower():
+                return data.get("results", [{}])[0].get("outputText", "")
+            
+            return ""
 
         def write_tf_files(tf_dir: str, main_tf: str) -> None:
             with open(os.path.join(tf_dir, "main.tf"), "w", encoding="utf-8") as f:
