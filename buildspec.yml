@@ -22,11 +22,7 @@ phases:
 
   pre_build:
     commands:
-      - |
-        if [ -z "$INSTRUCTION" ]; then
-          echo "ERROR: INSTRUCTION env var is required (natural language request)."
-          exit 1
-        fi
+      - if [ -z "$INSTRUCTION" ]; then echo "ERROR: INSTRUCTION env var is required (natural language request)."; exit 1; fi
       - mkdir -p "$TF_DIR"
       - echo "Instruction: $INSTRUCTION"
       - echo "Region: $AWS_REGION"
