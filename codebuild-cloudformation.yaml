@@ -91,6 +91,8 @@ Resources:
                   - s3:*
                   - codeconnections:*
                   - bedrock:InvokeModel
+                  - aws-marketplace:ViewSubscriptions
+                  - aws-marketplace:Subscribe
                 Resource: '*'
 
   # S3 Bucket for CodeBuild Artifacts
