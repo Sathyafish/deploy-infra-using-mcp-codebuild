@@ -2,52 +2,162 @@ version: 0.2
 
 env:
   variables:
-    BUCKET_NAME: "mcp-validated-bucket-2026-1830"
     AWS_REGION: "us-east-1"
+    INSTRUCTION: "Create an S3 bucket named my-company-logs-12345 with versioning enabled and block all public access."
+    # Bedrock model to use (example; pick one you have access to)
+    BEDROCK_MODEL_ID: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    TF_DIR: "tfgen"
 
 phases:
   install:
     runtime-versions:
-      python: 3.10
+      python: 3.11
     commands:
-      - echo "Installing uv and AWS IaC MCP Server..."
-      - curl -LsSf https://astral.sh/uv/install.sh | sh
-      - . $HOME/.cargo/env
-      # Pre-fetch the MCP server so it's ready to use
-      - uvx awslabs.aws-iac-mcp-server@latest --help
+      - python --version
+      - pip install --upgrade pip
+      # MCP Python SDK + AWS Terraform MCP Server
+      - pip install "mcp[cli]" awslabs.terraform-mcp-server boto3
+      # Terraform CLI must be present for terraform-mcp-server workflow execution
+      - terraform -version || (echo "Terraform not found. Use a CodeBuild image that includes terraform, or install it in install phase." && exit 1)
 
   pre_build:
     commands:
-      - echo "Validating infrastructure with MCP tools..."
-      # In a real AI-agent scenario, the agent would call these tools. 
-      # Here, we simulate the validation check for our S3 CloudFormation template.
       - |
-        cat <<EOF > s3-bucket.yaml
-        AWSTemplateFormatVersion: '2010-09-09'
-        Resources:
-          S3Bucket:
-            Type: 'AWS::S3::Bucket'
-            Properties:
-              BucketName: $BUCKET_NAME
-              PublicAccessBlockConfiguration:
-                BlockPublicAcls: true
-                BlockPublicPolicy: true
-                IgnorePublicAcls: true
-                RestrictPublicBuckets: true
-        EOF
-      # Running a direct validation command (simulating the MCP tool logic)
-      - aws cloudformation validate-template --template-body file://s3-bucket.yaml
+        if [ -z "$INSTRUCTION" ]; then
+          echo "ERROR: INSTRUCTION env var is required (natural language request)."
+          exit 1
+        fi
+      - mkdir -p "$TF_DIR"
+      - echo "Instruction: $INSTRUCTION"
+      - echo "Region: $AWS_REGION"
+      - echo "TF_DIR: $TF_DIR"
 
   build:
     commands:
-      - echo "Deploying S3 Bucket via CloudFormation..."
       - |
-        aws cloudformation deploy \
-          --template-file s3-bucket.yaml \
-          --stack-name mcp-s3-deployment-stack \
-          --region $AWS_REGION
+        cat > nl_to_terraform_and_apply.py << 'PY'
+        import asyncio
+        import json
+        import os
+        import textwrap
 
-  post_build:
-    commands:
-      - echo "Deployment complete. Verifying bucket..."
-      - aws s3 ls s3://$BUCKET_NAME
+        import boto3
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        def bedrock_invoke_text(model_id: str, prompt: str) -> str:
+            """
+            Minimal Bedrock text invocation.
+            NOTE: Bedrock request/response schemas differ by model provider.
+            This implementation targets Anthropic-style models on Bedrock.
+            If you use a different model/provider, adjust the payload format.
+            """
+            br = boto3.client("bedrock-runtime", region_name=os.environ["AWS_REGION"])
+
+            body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 2000,
+                "temperature": 0.2,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+
+            resp = br.invoke_model(
+                modelId=model_id,
+                body=json.dumps(body).encode("utf-8"),
+                contentType="application/json",
+                accept="application/json",
+            )
+            data = json.loads(resp["body"].read())
+            # Anthropic-style response
+            return "".join(part.get("text", "") for part in data.get("content", []))
+
+        def write_tf_files(tf_dir: str, main_tf: str) -> None:
+            with open(os.path.join(tf_dir, "main.tf"), "w", encoding="utf-8") as f:
+                f.write(main_tf.strip() + "\n")
+
+        async def run_tf_mcp(tf_dir: str, aws_region: str, command: str) -> None:
+            # Start the AWS Terraform MCP server over stdio using uvx (as documented)
+            # Docs show: command "uvx" args ["awslabs.terraform-mcp-server@latest"] :contentReference[oaicite:2]{index=2}
+            server_params = StdioServerParameters(
+                command="uvx",
+                args=["awslabs.terraform-mcp-server@latest"],
+                env={
+                    "AWS_REGION": aws_region,
+                    "FASTMCP_LOG_LEVEL": "ERROR",
+                },
+            )
+
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+
+                    # Tool name from AWS Terraform MCP Server:
+                    # ExecuteTerraformCommand :contentReference[oaicite:3]{index=3}
+                    result = await session.call_tool(
+                        "ExecuteTerraformCommand",
+                        arguments={
+                            "command": command,
+                            "working_directory": tf_dir,
+                            "aws_region": aws_region,
+                            "strip_ansi": True,
+                        },
+                    )
+
+                    # Print tool output for build logs
+                    for part in result.content:
+                        txt = getattr(part, "text", None)
+                        if txt:
+                            print(txt)
+
+        async def main() -> None:
+            instruction = os.environ["INSTRUCTION"].strip()
+            aws_region = os.environ["AWS_REGION"]
+            model_id = os.environ["BEDROCK_MODEL_ID"]
+            tf_dir = os.environ["TF_DIR"]
+
+            system_rules = textwrap.dedent(f"""
+            You are generating Terraform for AWS based on a single natural-language instruction.
+            Requirements:
+            - Output ONLY valid Terraform HCL for main.tf (no markdown, no explanations).
+            - Use the AWS provider.
+            - Prefer secure defaults: block public access for S3, enable versioning if asked, no public ACL/policy.
+            - Keep it minimal: only resources required by the instruction.
+            - Region: {aws_region}
+            """)
+
+            prompt = system_rules + "\nInstruction:\n" + instruction + "\n"
+
+            print("Generating Terraform with Bedrock...")
+            main_tf = bedrock_invoke_text(model_id, prompt)
+            if not main_tf.strip():
+                raise RuntimeError("LLM returned empty Terraform.")
+
+            write_tf_files(tf_dir, main_tf)
+            print("Generated main.tf:")
+            print(main_tf)
+
+            # Run Terraform via MCP server
+            print("\n=== terraform init (via MCP) ===")
+            await run_tf_mcp(tf_dir, aws_region, "init -upgrade")
+
+            print("\n=== terraform validate (via MCP) ===")
+            await run_tf_mcp(tf_dir, aws_region, "validate")
+
+            print("\n=== terraform plan (via MCP) ===")
+            await run_tf_mcp(tf_dir, aws_region, "plan -out=tfplan")
+
+            # IMPORTANT: CodeBuild cannot “approve” tool usage like an interactive agent.
+            # If you need approvals, put a manual approval step in CodePipeline before apply.
+            print("\n=== terraform apply (via MCP) ===")
+            await run_tf_mcp(tf_dir, aws_region, "apply -auto-approve tfplan")
+
+        if __name__ == "__main__":
+            asyncio.run(main())
+        PY
+
+      - python nl_to_terraform_and_apply.py
+
+artifacts:
+  files:
+    - tfgen/main.tf
+    - nl_to_terraform_and_apply.py
