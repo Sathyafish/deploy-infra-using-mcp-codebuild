@@ -22,7 +22,12 @@ phases:
 
   pre_build:
     commands:
-      - if [ -z "$INSTRUCTION" ]; then echo "ERROR: INSTRUCTION env var is required (natural language request)."; exit 1; fi
+      - echo "Validating environment variables..."
+      - |
+        if [ -z "$INSTRUCTION" ]; then
+          echo "ERROR: INSTRUCTION env var is required"
+          exit 1
+        fi
       - mkdir -p "$TF_DIR"
       - echo "Instruction: $INSTRUCTION"
       - echo "Region: $AWS_REGION"
@@ -150,7 +155,6 @@ phases:
         if __name__ == "__main__":
             asyncio.run(main())
         PY
-
       - python nl_to_terraform_and_apply.py
 
 artifacts:
