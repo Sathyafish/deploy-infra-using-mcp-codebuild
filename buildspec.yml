@@ -4,7 +4,8 @@ env:
   variables:
     AWS_REGION: "us-east-1"
     INSTRUCTION: "Create an S3 bucket named my-company-logs-12345 with versioning enabled and block all public access."
-    BEDROCK_MODEL_ID: "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+    # Amazon Nova Pro (no quota issues, available immediately)
+    BEDROCK_MODEL_ID: "amazon.nova-pro-v1:0"
     TF_DIR: "tfgen"
 
 phases:
@@ -50,7 +51,7 @@ phases:
 
         def bedrock_invoke_text(model_id: str, prompt: str) -> str:
             """
-            Bedrock text invocation supporting both Anthropic and Amazon Titan models.
+            Bedrock text invocation supporting Anthropic, Amazon Titan, and Amazon Nova models.
             """
             br = boto3.client("bedrock-runtime", region_name=os.environ["AWS_REGION"])
 
@@ -59,16 +60,26 @@ phases:
                 # Anthropic Claude format
                 body = {
                     "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 2000,
+                    "max_tokens": 1000,
                     "temperature": 0.2,
                     "messages": [{"role": "user", "content": prompt}],
+                }
+            elif "nova" in model_id.lower():
+                # Amazon Nova format (similar to Claude)
+                body = {
+                    "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                    "inferenceConfig": {
+                        "max_new_tokens": 1000,
+                        "temperature": 0.2,
+                        "top_p": 0.9
+                    }
                 }
             elif "titan" in model_id.lower():
                 # Amazon Titan format
                 body = {
                     "inputText": prompt,
                     "textGenerationConfig": {
-                        "maxTokenCount": 2000,
+                        "maxTokenCount": 1000,
                         "temperature": 0.2,
                         "topP": 0.9,
                     }
@@ -87,6 +98,9 @@ phases:
             # Parse response based on model type
             if "anthropic" in model_id.lower():
                 return "".join(part.get("text", "") for part in data.get("content", []))
+            elif "nova" in model_id.lower():
+                # Nova response format
+                return data.get("output", {}).get("message", {}).get("content", [{}])[0].get("text", "")
             elif "titan" in model_id.lower():
                 return data.get("results", [{}])[0].get("outputText", "")
             
