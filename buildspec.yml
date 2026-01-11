@@ -4,7 +4,6 @@ env:
   variables:
     AWS_REGION: "us-east-1"
     INSTRUCTION: "Create an S3 bucket named my-company-logs-12345 with versioning enabled and block all public access."
-    # Bedrock model to use (example; pick one you have access to)
     BEDROCK_MODEL_ID: "anthropic.claude-3-5-sonnet-20241022-v2:0"
     TF_DIR: "tfgen"
 
@@ -15,28 +14,31 @@ phases:
     commands:
       - python --version
       - pip install --upgrade pip
-      # MCP Python SDK + AWS Terraform MCP Server
       - pip install "mcp[cli]" awslabs.terraform-mcp-server boto3
-      # Terraform CLI must be present for terraform-mcp-server workflow execution
-      - terraform -version || (echo "Terraform not found. Use a CodeBuild image that includes terraform, or install it in install phase." && exit 1)
+      - |
+        # Install Terraform
+        wget -q https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+        unzip -q terraform_1.6.6_linux_amd64.zip
+        mv terraform /usr/local/bin/
+        terraform -version
 
   pre_build:
     commands:
       - echo "Validating environment variables..."
       - |
         if [ -z "$INSTRUCTION" ]; then
-          echo "ERROR: INSTRUCTION env var is required"
+          echo "ERROR - INSTRUCTION env var is required"
           exit 1
         fi
       - mkdir -p "$TF_DIR"
-      - echo "Instruction: $INSTRUCTION"
-      - echo "Region: $AWS_REGION"
-      - echo "TF_DIR: $TF_DIR"
+      - echo "Instruction - $INSTRUCTION"
+      - echo "Region - $AWS_REGION"
+      - echo "TF_DIR - $TF_DIR"
 
   build:
     commands:
       - |
-        cat > nl_to_terraform_and_apply.py << 'PY'
+        cat > nl_to_terraform_and_apply.py << 'PYEOF'
         import asyncio
         import json
         import os
@@ -48,10 +50,7 @@ phases:
 
         def bedrock_invoke_text(model_id: str, prompt: str) -> str:
             """
-            Minimal Bedrock text invocation.
-            NOTE: Bedrock request/response schemas differ by model provider.
-            This implementation targets Anthropic-style models on Bedrock.
-            If you use a different model/provider, adjust the payload format.
+            Minimal Bedrock text invocation for Anthropic-style models.
             """
             br = boto3.client("bedrock-runtime", region_name=os.environ["AWS_REGION"])
 
@@ -69,7 +68,6 @@ phases:
                 accept="application/json",
             )
             data = json.loads(resp["body"].read())
-            # Anthropic-style response
             return "".join(part.get("text", "") for part in data.get("content", []))
 
         def write_tf_files(tf_dir: str, main_tf: str) -> None:
@@ -77,8 +75,6 @@ phases:
                 f.write(main_tf.strip() + "\n")
 
         async def run_tf_mcp(tf_dir: str, aws_region: str, command: str) -> None:
-            # Start the AWS Terraform MCP server over stdio using uvx (as documented)
-            # Docs show: command "uvx" args ["awslabs.terraform-mcp-server@latest"] :contentReference[oaicite:2]{index=2}
             server_params = StdioServerParameters(
                 command="uvx",
                 args=["awslabs.terraform-mcp-server@latest"],
@@ -92,8 +88,6 @@ phases:
                 async with ClientSession(read, write) as session:
                     await session.initialize()
 
-                    # Tool name from AWS Terraform MCP Server:
-                    # ExecuteTerraformCommand :contentReference[oaicite:3]{index=3}
                     result = await session.call_tool(
                         "ExecuteTerraformCommand",
                         arguments={
@@ -104,7 +98,6 @@ phases:
                         },
                     )
 
-                    # Print tool output for build logs
                     for part in result.content:
                         txt = getattr(part, "text", None)
                         if txt:
@@ -137,7 +130,6 @@ phases:
             print("Generated main.tf:")
             print(main_tf)
 
-            # Run Terraform via MCP server
             print("\n=== terraform init (via MCP) ===")
             await run_tf_mcp(tf_dir, aws_region, "init -upgrade")
 
@@ -147,17 +139,21 @@ phases:
             print("\n=== terraform plan (via MCP) ===")
             await run_tf_mcp(tf_dir, aws_region, "plan -out=tfplan")
 
-            # IMPORTANT: CodeBuild cannot “approve” tool usage like an interactive agent.
-            # If you need approvals, put a manual approval step in CodePipeline before apply.
             print("\n=== terraform apply (via MCP) ===")
             await run_tf_mcp(tf_dir, aws_region, "apply -auto-approve tfplan")
 
         if __name__ == "__main__":
             asyncio.run(main())
-        PY
+        PYEOF
       - python nl_to_terraform_and_apply.py
+
+  post_build:
+    commands:
+      - echo "Deployment complete!"
+      - ls -la $TF_DIR
 
 artifacts:
   files:
     - tfgen/main.tf
     - nl_to_terraform_and_apply.py
+  name: terraform-mcp-artifacts
