@@ -4,7 +4,7 @@ env:
   variables:
     AWS_REGION: "us-east-1"
     INSTRUCTION: "Create an S3 bucket named my-company-logs-12345 with versioning enabled and block all public access."
-    BEDROCK_MODEL_ID: "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+    BEDROCK_MODEL_ID: "amazon.titan-text-premier-v1:0"
     TF_DIR: "tfgen"
 
 phases:
