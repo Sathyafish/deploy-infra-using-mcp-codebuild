@@ -1,0 +1,169 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to create CodeBuild project connected to GitHub repository'
+
+Parameters:
+  GitHubRepoUrl:
+    Type: String
+    Default: 'https://github.com/Sathyafish/deploy-infra-using-mcp-codebuild'
+    Description: 'GitHub repository URL'
+  
+  GitHubBranch:
+    Type: String
+    Default: 'main'
+    Description: 'GitHub branch to build'
+  
+  BuildImage:
+    Type: String
+    Default: 'aws/codebuild/standard:7.0'
+    Description: 'CodeBuild build image'
+    AllowedValues:
+      - 'aws/codebuild/standard:7.0'
+      - 'aws/codebuild/standard:6.0'
+      - 'aws/codebuild/standard:5.0'
+      - 'aws/codebuild/amazonlinux2-x86_64-standard:4.0'
+      - 'aws/codebuild/ubuntu-standard:20.04'
+  
+  ComputeType:
+    Type: String
+    Default: 'BUILD_GENERAL1_SMALL'
+    Description: 'CodeBuild compute type'
+    AllowedValues:
+      - 'BUILD_GENERAL1_SMALL'
+      - 'BUILD_GENERAL1_MEDIUM'
+      - 'BUILD_GENERAL1_LARGE'
+      - 'BUILD_GENERAL1_2XLARGE'
+  
+  EnvironmentType:
+    Type: String
+    Default: 'LINUX_CONTAINER'
+    Description: 'Build environment type'
+    AllowedValues:
+      - 'LINUX_CONTAINER'
+      - 'LINUX_GPU_CONTAINER'
+      - 'WINDOWS_CONTAINER'
+      - 'ARM_CONTAINER'
+  
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Description: 'GitHub personal access token (for private repos) or leave empty for public repos'
+    Default: ''
+
+Resources:
+  # IAM Role for CodeBuild
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-CodeBuildRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+      Policies:
+        - PolicyName: CodeBuildBasePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::${CodeBuildArtifactsBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub 'arn:aws:s3:::${CodeBuildArtifactsBucket}'
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                - logs:*
+                - eks:*
+                - ec2:*
+                - kms:*
+                - s3:*
+                Resource: '*'                
+
+  # S3 Bucket for CodeBuild Artifacts
+  CodeBuildArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-codebuild-artifacts-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # CloudWatch Log Group for CodeBuild
+  CodeBuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/codebuild/${AWS::StackName}-codebuild-project'
+      RetentionInDays: 7
+
+  # CodeBuild Project
+# CodeBuild Project
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${AWS::StackName}-codebuild-project'
+      Description: 'CodeBuild project for GitHub repository'
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: S3
+        Location: !Ref CodeBuildArtifactsBucket
+        Name: build-artifacts
+        Packaging: ZIP
+        OverrideArtifactName: false
+      Environment:
+        Type: !Ref EnvironmentType
+        ComputeType: !Ref ComputeType
+        Image: !Ref BuildImage
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+      Source:
+        Type: GITHUB
+        Location: !Ref GitHubRepoUrl
+        BuildSpec: buildspec.yml
+        GitCloneDepth: 1
+        ReportBuildStatus: true
+        Auth:
+          Type: OAUTH
+      SourceVersion: !Ref GitHubBranch  # Move this outside of Source block
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Sub '/aws/codebuild/${AWS::StackName}-codebuild-project'
+          StreamName: !Sub '${AWS::StackName}-codebuild-project-logs'
+      TimeoutInMinutes: 60
+      QueuedTimeoutInMinutes: 480
+      BadgeEnabled: true
+      Tags:
+        - Key: Project
+          Value: CodeBuild-GitHub
+        - Key: Repository
+          Value: deploy-infra-using-mcp-codebuild
+

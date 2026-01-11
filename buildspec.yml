@@ -1,0 +1,53 @@
+version: 0.2
+
+env:
+  variables:
+    BUCKET_NAME: "mcp-validated-bucket-2026-1830"
+    AWS_REGION: "us-east-1"
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.10
+    commands:
+      - echo "Installing uv and AWS IaC MCP Server..."
+      - curl -LsSf https://astral.sh/uv/install.sh | sh
+      - . $HOME/.cargo/env
+      # Pre-fetch the MCP server so it's ready to use
+      - uvx awslabs.aws-iac-mcp-server@latest --help
+
+  pre_build:
+    commands:
+      - echo "Validating infrastructure with MCP tools..."
+      # In a real AI-agent scenario, the agent would call these tools. 
+      # Here, we simulate the validation check for our S3 CloudFormation template.
+      - |
+        cat <<EOF > s3-bucket.yaml
+        AWSTemplateFormatVersion: '2010-09-09'
+        Resources:
+          S3Bucket:
+            Type: 'AWS::S3::Bucket'
+            Properties:
+              BucketName: $BUCKET_NAME
+              PublicAccessBlockConfiguration:
+                BlockPublicAcls: true
+                BlockPublicPolicy: true
+                IgnorePublicAcls: true
+                RestrictPublicBuckets: true
+        EOF
+      # Running a direct validation command (simulating the MCP tool logic)
+      - aws cloudformation validate-template --template-body file://s3-bucket.yaml
+
+  build:
+    commands:
+      - echo "Deploying S3 Bucket via CloudFormation..."
+      - |
+        aws cloudformation deploy \
+          --template-file s3-bucket.yaml \
+          --stack-name mcp-s3-deployment-stack \
+          --region $AWS_REGION
+
+  post_build:
+    commands:
+      - echo "Deployment complete. Verifying bucket..."
+      - aws s3 ls s3://$BUCKET_NAME
