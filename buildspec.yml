@@ -3,7 +3,7 @@ version: 0.2
 env:
   variables:
     AWS_REGION: "us-east-1"
-    INSTRUCTION: "Create an S3 bucket named my-company-logs-12345 with versioning enabled and block all public access."
+    INSTRUCTION: "Create an S3 bucket named mcp-poc-test-bucket-998876 with versioning enabled and block all public access."
     # Amazon Nova Pro (no quota issues, available immediately)
     BEDROCK_MODEL_ID: "amazon.nova-pro-v1:0"
     TF_DIR: "tfgen"
