@@ -42,12 +42,6 @@ Parameters:
       - 'LINUX_GPU_CONTAINER'
       - 'WINDOWS_CONTAINER'
       - 'ARM_CONTAINER'
-  
-  GitHubToken:
-    Type: String
-    NoEcho: true
-    Description: 'GitHub personal access token (for private repos) or leave empty for public repos'
-    Default: ''
 
 Resources:
   # IAM Role for CodeBuild
@@ -90,12 +84,13 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action:
-                - logs:*
-                - eks:*
-                - ec2:*
-                - kms:*
-                - s3:*
-                Resource: '*'                
+                  - logs:*
+                  - eks:*
+                  - ec2:*
+                  - kms:*
+                  - s3:*
+                  - codeconnections:*
+                Resource: '*'
 
   # S3 Bucket for CodeBuild Artifacts
   CodeBuildArtifactsBucket:
@@ -123,7 +118,6 @@ Resources:
       RetentionInDays: 7
 
   # CodeBuild Project
-# CodeBuild Project
   CodeBuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
@@ -149,21 +143,22 @@ Resources:
         Location: !Ref GitHubRepoUrl
         BuildSpec: buildspec.yml
         GitCloneDepth: 1
-        ReportBuildStatus: true
-        Auth:
-          Type: OAUTH
-      SourceVersion: !Ref GitHubBranch  # Move this outside of Source block
+      SourceVersion: !Ref GitHubBranch
+      Triggers:
+        Webhook: true
+        FilterGroups:
+          - - Type: EVENT
+              Pattern: PUSH
+            - Type: HEAD_REF
+              Pattern: !Sub '^refs/heads/${GitHubBranch}$'
       LogsConfig:
         CloudWatchLogs:
           Status: ENABLED
           GroupName: !Sub '/aws/codebuild/${AWS::StackName}-codebuild-project'
-          StreamName: !Sub '${AWS::StackName}-codebuild-project-logs'
       TimeoutInMinutes: 60
       QueuedTimeoutInMinutes: 480
-      BadgeEnabled: true
       Tags:
         - Key: Project
           Value: CodeBuild-GitHub
         - Key: Repository
           Value: deploy-infra-using-mcp-codebuild
-
